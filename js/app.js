@@ -608,6 +608,7 @@ function openAbout(e) { e && e.preventDefault(); renderAbout(); $('#about').hidd
 const HOME = { magnetic: { pos: [24, 26, 44], target: [2, 0, 0] }, dielectric: { pos: [10, 12, 60], target: [0, 0, -6] } };
 function resetCamera() { const h = HOME[S.view]; camera.position.set(...h.pos); controls.target.set(...h.target); if (isMobile()) camera.position.multiplyScalar(1.25); controls.update(); }
 function setView(v) {
+  queueMicrotask(() => cue.refresh());
   S.view = v; $('#probe').hidden = true;
   $$('.views button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $$('#controls section[data-for]').forEach(s => s.hidden = s.dataset.for !== v);
@@ -615,7 +616,7 @@ function setView(v) {
   resetCamera();
   $('#chart1Cap').textContent = v === 'magnetic' ? 'EMF while dragging' : 'Capacity vs spacing';
   if (v === 'magnetic') {
-    $('#hint').textContent = TOUCH ? 'Drag the magnet · one finger to orbit · pinch to zoom' : 'Drag the magnet · drag empty space to orbit · scroll to zoom · double-click to reset';
+    $('#hint').innerHTML = '<b class="mag">Drag the magnet</b> · ' + (TOUCH ? 'one finger to orbit · pinch to zoom' : 'drag empty space to orbit · scroll to zoom · double-click to reset');
     $('#legend').innerHTML = `<span class="sw" style="border-color:var(--mag)"></span>lines of magnetic force Φ · brightness = strength · dots show direction`;
   } else {
     $('#hint').textContent = TOUCH ? 'Drag a wire · one finger to orbit · pinch to zoom' : 'Drag a wire by its glowing end · orbit to see the wires in depth · double-click to reset';
@@ -676,7 +677,7 @@ function initControls() {
   bindRange('sLen', 'vLen', v => v.toFixed(1) + ' cm', (v, l) => { S.coil.len = v * CM; l !== null && magChanged(l); });
   bindRange('sBr', 'vBr', v => v.toFixed(2) + ' T', (v, l) => { S.magnet.Br = v; l !== null && magChanged(l); });
   bindRange('sAng', 'vAng', v => v.toFixed(0) + '°', (v, l) => { const t = v * Math.PI / 180; S.magnet.dir = [Math.cos(t), 0, -Math.sin(t)]; placeMagnet(); if (l !== null) { sampleEmf(); magChanged(l); } });
-  $('#cMag').onchange = (e) => { S.magnet.enabled = e.target.checked; placeMagnet(); lastLam = null; magChanged(false); };
+  $('#cMag').onchange = (e) => { S.magnet.enabled = e.target.checked; placeMagnet(); cue.refresh(); lastLam = null; magChanged(false); };
   $('#bResetMag').onclick = () => { S.magnet.pos = [16 * CM, 0, 0]; $('#sAng').value = 180; setFill($('#sAng')); S.magnet.dir = [-1, 0, 0]; $('#vAng').textContent = '180°'; placeMagnet(); lastLam = null; magChanged(false); };
   $('#cFlow').checked = S.flow; $('#cFlow').onchange = (e) => { S.flow = e.target.checked; if (flowPts) flowPts.visible = S.flow; };
   $('#c3d').onchange = (e) => { S.cage = e.target.checked; if (magLines3) magLines3.visible = S.cage; requestLines('full'); };
@@ -717,7 +718,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (S.view === 'magnetic' && S.magnet.enabled) {
     if (ray.intersectObject(magnetObj, true).length) {
       const p = hitPlane(dragPlane);
-      if (p) { dragging = { kind: 'magnet' }; dragOff.set(S.magnet.pos[0] / CM - p.x, 0, S.magnet.pos[2] / CM - p.z); controls.enabled = false; canvas.setPointerCapture(e.pointerId); lastLam = null; sampleEmf(); }
+      if (p) { cue.dismiss(); canvas.style.cursor = 'grabbing'; dragging = { kind: 'magnet' }; dragOff.set(S.magnet.pos[0] / CM - p.x, 0, S.magnet.pos[2] / CM - p.z); controls.enabled = false; canvas.setPointerCapture(e.pointerId); lastLam = null; sampleEmf(); }
     }
   } else if (S.view === 'dielectric') {
     const hits = ray.intersectObjects(condGroup.children.filter(o => o.name !== 'sign'), false);
@@ -741,15 +742,83 @@ canvas.addEventListener('pointermove', (e) => {
     c.x = Math.max(-45, Math.min(45, p.x + dragOff.x)) * CM; c.y = Math.max(-28, Math.min(28, p.y + dragOff.y)) * CM;
     fixOverlaps(); buildCondMeshes(); cancelAnimationFrame(dielDragRAF); dielDragRAF = requestAnimationFrame(solveAndDrawDiel); return;
   }
-  if (e.pointerType === 'mouse') probe(e);
+  if (e.pointerType === 'mouse') { hoverMagnet(); probe(e); }
 });
 const endDrag = (e) => {
-  if (dragging) { if (dragging.kind === 'magnet') requestLines('full'); dragging = null; controls.enabled = true; return; }
+  if (dragging) { if (dragging.kind === 'magnet') { requestLines('full'); canvas.style.cursor = magHover ? 'grab' : ''; } dragging = null; controls.enabled = true; return; }
   if (e && e.type === 'pointerup' && e.pointerType !== 'mouse') { const now = performance.now(); if (now - lastTap < 320) resetCamera(); lastTap = now; }
 };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
 canvas.addEventListener('dblclick', resetCamera);
-canvas.addEventListener('pointerleave', () => { $('#probe').hidden = true; });
+canvas.addEventListener('pointerleave', () => { $('#probe').hidden = true; if (!dragging) setMagHover(false); });
+// ---- hover affordance: grab cursor + brighter magnet ----
+let magHover = false;
+function setMagHover(on) {
+  if (on === magHover) return; magHover = on;
+  if (!dragging) canvas.style.cursor = on ? 'grab' : '';
+  magnetObj.traverse(o => { if (o.isMesh && o.material && o.material.emissive) { o.material.emissive.set(T.mag || '#38D6FF'); o.material.emissiveIntensity = on ? 0.22 : 0; } });
+}
+function hoverMagnet() {
+  if (dragging) return;
+  setMagHover(S.view === 'magnetic' && S.magnet.enabled && ray.intersectObject(magnetObj, true).length > 0);
+}
+
+// ---- "Drag me" cue: ring + label anchored to the magnet's projected screen position ----
+const cue = (() => {
+  const el = $('#dragCue'), KEY = 'steinmetzFields.magnetDragged', NKEY = 'steinmetzFields.nudgeShown';
+  const ls = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} } };
+  let done = ls.get(KEY) === '1' || OG, gone = false, nudge = null, quietTimer = 0, nudgeTimer = 0;
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), right = new THREE.Vector3();
+  const active = () => !done && S.view === 'magnetic' && S.magnet.enabled;
+  function refresh() {
+    if (!active()) { el.hidden = true; return; }
+    el.hidden = false; el.classList.remove('gone'); place();
+  }
+  function place() {
+    if (el.hidden) return;
+    const r = canvas.getBoundingClientRect(), sr = el.parentElement.getBoundingClientRect();
+    magnetObj.getWorldPosition(vA); vB.copy(vA);
+    right.setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(S.magnet.b / CM * 2.2); vB.add(right);
+    vA.project(camera); vB.project(camera);
+    if (vA.z > 1 || Math.abs(vA.x) > 1.05 || Math.abs(vA.y) > 1.05) { el.style.visibility = 'hidden'; return; }
+    el.style.visibility = '';
+    const x = r.left - sr.left + (vA.x + 1) / 2 * r.width, y = r.top - sr.top + (1 - vA.y) / 2 * r.height;
+    const rad = Math.hypot((vB.x - vA.x) / 2 * r.width, (vB.y - vA.y) / 2 * r.height);
+    const d = Math.max(44, Math.min(140, rad * 2));
+    el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`; el.style.setProperty('--d', d.toFixed(1) + 'px');
+    el.classList.toggle('flip', x + d / 2 + 120 > r.right - sr.left);
+  }
+  function dismiss() {
+    if (nudge) endNudge(true);
+    if (done) return; done = true; ls.set(KEY, '1'); clearTimeout(quietTimer); clearTimeout(nudgeTimer);
+    el.classList.add('gone'); gone = true; setTimeout(() => { el.hidden = true; }, 320);
+  }
+  function startNudge() {
+    if (done || reducedMotion || dragging || !active() || ls.get(NKEY) === '1') return;
+    ls.set(NKEY, '1');
+    const p0 = S.magnet.pos.slice(); const dir = [-(Math.sign(p0[0]) || 1), 0, 0]; // toward the coil
+    nudge = { t0: performance.now(), p0, dir, amp: 3 * CM, dur: 1200 };
+  }
+  function endNudge(keepPos) {
+    if (!nudge) return; if (!keepPos) { S.magnet.pos = nudge.p0.slice(); placeMagnet(); }
+    nudge = null; requestLines('full');
+  }
+  function tick(now) {
+    if (nudge && !dragging) {
+      const u = Math.min(1, (now - nudge.t0) / nudge.dur), s = Math.sin(Math.PI * u) ** 2; // out and back, eased
+      S.magnet.pos = [nudge.p0[0] + nudge.dir[0] * nudge.amp * s, nudge.p0[1], nudge.p0[2]]; placeMagnet(); requestLines('fast');
+      if (u >= 1) endNudge(false);
+    }
+    if (!el.hidden) place();
+  }
+  function start() {
+    refresh();
+    if (done) return;
+    nudgeTimer = setTimeout(startNudge, 1000);
+    quietTimer = setTimeout(() => el.classList.add('quiet'), 8000);
+  }
+  return { refresh, dismiss, tick, start, state: () => ({ done, gone, hidden: el.hidden, quiet: el.classList.contains('quiet'), nudging: !!nudge, stored: ls.get(KEY) }) };
+})();
 function probe(e) {
   const pr = $('#probe');
   if (S.view === 'magnetic') {
@@ -771,12 +840,13 @@ function frame(t) {
   if (!running) return;
   const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
   controls.update();
+  cue.tick(t);
   if (S.view === 'magnetic') {
     if (S.flow && !reducedMotion) stepFlow(dt);
     if (!dragging) sampleEmf();
     emfTick += dt; if (emfTick > 1 / 30) { emfTick = 0; emfHist.push(emfNow); if (emfHist.length > 300) emfHist.shift(); drawEmfChart(); }
     readTick += dt; if (readTick > 0.3) { readTick = 0; updateCards(); }
-    const halo = magnetObj.getObjectByName('halo'); if (halo) halo.material.opacity = dragging ? 0.7 : reducedMotion ? 0.25 : 0.2 + 0.12 * Math.sin(t / 400);
+    const halo = magnetObj.getObjectByName('halo'); if (halo) halo.material.opacity = dragging ? 0.7 : magHover ? 0.6 : reducedMotion ? 0.25 : 0.2 + 0.12 * Math.sin(t / 400);
   } else {
     if (!reducedMotion) { dieMat.dashOffset -= dt * 1.2; dieMatGhost.dashOffset = dieMat.dashOffset; } // dashes flow from + to −
     if (S.diel.preset === 'three' && S.diel.anim) { S.diel.phase += dt * (2 * Math.PI / 8); solveAndDrawDiel(); }
@@ -809,11 +879,12 @@ function boot() {
     const k = S.view + c.dataset.k; openCards.has(k) ? openCards.delete(k) : openCards.add(k);
     c.classList.toggle('open', openCards.has(k)); c.setAttribute('aria-expanded', openCards.has(k));
   });
+  cue.start();
   requestAnimationFrame(frame);
   window.__app = {
     S, setView, setTab, setPreset, resetCamera, redrawCharts,
     magnetScreen() { const v = magnetObj.position.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height }; },
-    camera, controls,
+    camera, controls, cueState: () => cue.state(),
   };
 }
 boot();

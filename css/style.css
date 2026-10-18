@@ -248,3 +248,22 @@ body.og #credit{left:0;right:0;bottom:0;padding:44px 16px 22px;background:linear
   input[type=range]{height:44px;margin:0;display:block;width:100%}
 }
 @media (prefers-reduced-motion:reduce){#hint{transition:none}}
+
+/* ---- "Drag me" affordance on the magnet (magnetic view only; never intercepts pointer events) ---- */
+#dragCue{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2;opacity:1;transition:opacity .3s ease}
+#dragCue[hidden]{display:none}
+#dragCue.gone{opacity:0}
+#dragCue .ring{position:absolute;left:0;top:0;width:var(--d,56px);height:var(--d,56px);margin:calc(var(--d,56px) / -2) 0 0 calc(var(--d,56px) / -2);border-radius:50%;
+  border:2px solid var(--mag);box-shadow:0 0 14px rgba(56,214,255,.55),inset 0 0 10px rgba(56,214,255,.25);animation:cuePulse 1.6s ease-in-out infinite;pointer-events:none}
+#dragCue.quiet .ring{animation:cuePulseQuiet 2.6s ease-in-out infinite}
+#dragCue .pill{position:absolute;top:0;left:calc(var(--d,56px) / 2 + 10px);transform:translateY(-50%);display:flex;align-items:center;gap:6px;white-space:nowrap;
+  background:rgba(7,9,13,.86);color:var(--mag);border:1px solid rgba(56,214,255,.55);border-radius:999px;padding:5px 11px 5px 8px;
+  font:600 13px var(--font-ui);letter-spacing:.01em;box-shadow:0 2px 12px rgba(0,0,0,.45);transition:opacity .3s ease;pointer-events:none}
+#dragCue.flip .pill{left:auto;right:calc(var(--d,56px) / 2 + 10px)}
+#dragCue.quiet .pill{opacity:0}
+#dragCue .pill svg{flex:none;display:block}
+@keyframes cuePulse{0%,100%{transform:scale(.92);opacity:.95}50%{transform:scale(1.12);opacity:.45}}
+@keyframes cuePulseQuiet{0%,100%{transform:scale(.97);opacity:.45}50%{transform:scale(1.06);opacity:.2}}
+@media (prefers-reduced-motion:reduce){#dragCue .ring,#dragCue.quiet .ring{animation:none;opacity:.8}#dragCue.quiet .ring{opacity:.45}}
+#hint b.mag{color:var(--mag);font-weight:600}
+body.og #dragCue{display:none!important}
