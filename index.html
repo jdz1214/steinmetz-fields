@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Steinmetz Fields: magnetic Φ and dielectric Ψ, interactive</title>
+<meta name="description" content="Push a magnet through a coil's lines of magnetic force and move charged conductors through lines of dielectric force. Computed with standard electromagnetics; Steinmetz's formulas cited to the page.">
+<meta name="theme-color" content="#07090D">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Steinmetz Fields: see the magnetic and dielectric field, and push them around">
+<meta property="og:description" content="Interactive 3D lines of magnetic force (Φ) and dielectric force (Ψ), computed with standard EM, with Charles P. Steinmetz's formulas cited to book and page.">
+<meta property="og:image" content="https://jdz1214.github.io/steinmetz-fields/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://jdz1214.github.io/steinmetz-fields/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Steinmetz Fields: see the magnetic and dielectric field, and push them around">
+<meta name="twitter:image" content="https://jdz1214.github.io/steinmetz-fields/og.png">
+<link rel="preload" href="vendor/fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.min.js","three/addons/":"./vendor/jsm/"}}</script>
+</head>
+<body>
+<div id="app">
+
+  <!-- LEFT: controls (becomes the bottom sheet on phones) -->
+  <aside id="controls" class="panel">
+    <div id="sheetHandle" aria-label="Drag to open controls"><span></span><b id="sheetLabel">Controls &amp; charts</b></div>
+    <div id="sheetHead"></div>
+    <div id="sheetBody">
+      <section data-for="magnetic">
+        <h2 class="ph">Coil &amp; magnet</h2>
+        <p class="lede">Lines of magnetic force around a coil, plus a permanent magnet you can drag across the floor plane.</p>
+        <div class="ctl mag"><label>Current <i>i</i><output id="vI"></output></label><input id="sI" type="range" min="-20" max="20" step="0.1" value="5"></div>
+        <div class="ctl mag"><label>Turns <i>n</i><output id="vN"></output></label><input id="sN" type="range" min="10" max="1000" step="10" value="200"></div>
+        <div class="ctl mag"><label>Coil radius<output id="vA"></output></label><input id="sA" type="range" min="1.5" max="6" step="0.1" value="3"></div>
+        <div class="ctl mag"><label>Coil length<output id="vLen"></output></label><input id="sLen" type="range" min="2" max="16" step="0.5" value="8"></div>
+        <div class="ctl row"><label class="chk"><input id="cMag" type="checkbox" checked> Permanent magnet</label><button id="bResetMag" class="mini">Reset magnet</button></div>
+        <div class="ctl mag"><label>Remanence <i>B</i><sub>r</sub><output id="vBr"></output></label><input id="sBr" type="range" min="0" max="1.4" step="0.01" value="1.0"></div>
+        <div class="ctl mag"><label>Magnet heading<output id="vAng"></output></label><input id="sAng" type="range" min="0" max="360" step="1" value="180"></div>
+        <div class="ctl row"><label class="chk"><input id="cFlow" type="checkbox" checked> Flow markers</label><label class="chk"><input id="c3d" type="checkbox" checked> 3D cage</label></div>
+      </section>
+      <section data-for="dielectric" hidden>
+        <h2 class="ph">Charged conductors</h2>
+        <p class="lede">Cross-section of parallel round wires, as in Steinmetz's Figs. 8 and 9. Drag a wire by its glowing end. The number of dashed lines is proportional to the dielectric flux Ψ = <i>C·e</i>.</p>
+        <div class="presets"><button data-preset="fig9" class="on">Two-wire (Fig. 9)</button><button data-preset="fig8">Single (Fig. 8)</button><button data-preset="three">Three-phase</button></div>
+        <div class="ctl die"><label>Voltage <i>e</i><output id="vV"></output></label><input id="sV" type="range" min="1" max="200" step="1" value="60"></div>
+        <div class="ctl die"><label>Wire radius <i>r</i><output id="vR"></output></label><input id="sR" type="range" min="0.3" max="3" step="0.05" value="1"></div>
+        <div class="ctl row"><label class="chk"><input id="cEqui" type="checkbox" checked> Equipotentials</label><label class="chk" id="lblMagOverlay"><input id="cMagOv" type="checkbox"> Magnetic lines (Fig. 9)</label></div>
+        <div class="ctl row" id="threeCtl" hidden><label class="chk"><input id="cAnim" type="checkbox" checked> Animate phase (slow motion)</label></div>
+        <p class="note" id="dielNote"></p>
+      </section>
+      <div class="ctl row dwrap"><label class="chk dtoggle"><input type="checkbox" id="dollardToggle"> Dollard's interpretation</label><button id="aboutBtn" class="mini">Sources &amp; notes</button></div>
+      <div id="sheetExtra"></div>
+    </div>
+  </aside>
+
+  <!-- CENTER: field view + chart strip -->
+  <main id="center">
+    <div id="stage">
+      <canvas id="c"></canvas>
+      <div id="titleBox"><h1>Steinmetz Fields</h1><div class="kicker">Interactive · drag the magnet</div><p>Two stores of a circuit's energy: the magnetic field Φ and the dielectric field Ψ</p></div>
+      <nav class="views" role="tablist">
+        <button data-view="magnetic" class="on mag">Φ Magnetic</button><button data-view="dielectric" class="die">Ψ Dielectric</button>
+      </nav>
+      <div id="dollardBadge" hidden><b>Dollard's interpretation</b> · not mainstream physics · <a href="#" id="badgeSources">sources</a></div>
+      <div id="hint"></div>
+      <div id="dragCue" hidden aria-hidden="true"><div class="ring"></div><div class="pill"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10"/><path d="M12 9.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-4.6-2.2L4 15.6a1.5 1.5 0 0 1 2.3-1.9L9 16V11"/><path d="M19.5 4.5h3m-1.5-1.5v3" stroke-width="1.4"/></svg><span>Drag me</span></div></div>
+      <div id="probe" hidden></div>
+      <div id="legend"></div>
+      <div id="loading">Computing field…</div>
+      <div id="credit"><span class="long">Fields computed with standard EM · formulas from C. P. Steinmetz (1897–1920), cited by page</span><span class="short">Standard EM · Steinmetz formulas cited</span> · <a href="#" id="creditSources">sources</a></div>
+    </div>
+    <div id="strip">
+      <figure class="chartbox"><figcaption id="chart1Cap">EMF while dragging</figcaption><canvas id="chart1" class="chart"></canvas></figure>
+      <figure class="chartbox"><figcaption><span class="mag">Φ</span> ⇄ <span class="die">Ψ</span> energy exchange (LC)</figcaption><canvas id="exChart" class="chart"></canvas></figure>
+      <figure class="chartbox"><figcaption>Hysteresis law <span class="sym"><i>W</i> = η·<i>B</i><sup>1.6</sup></span></figcaption><canvas id="hChart" class="chart"></canvas></figure>
+    </div>
+  </main>
+
+  <!-- RIGHT: readouts + formulas -->
+  <aside id="readouts" class="panel">
+    <h2 class="ph">Live readouts</h2>
+    <div id="roCards" class="cards"></div>
+    <div id="dollardBox" hidden></div>
+    <div id="formulas">
+      <h2 class="ph">Steinmetz's formulas</h2>
+      <nav class="tabs">
+        <button data-tab="energy" class="on">Energy stores</button>
+        <button data-tab="hyst">Hysteresis</button>
+        <button data-tab="laws">Field laws</button>
+      </nav>
+      <section data-tab="energy" id="tabEnergy"></section>
+      <section data-tab="hyst" id="tabHyst" hidden></section>
+      <section data-tab="laws" id="tabLaws" hidden></section>
+    </div>
+  </aside>
+</div>
+
+<div id="about" class="modal" hidden>
+  <div class="card">
+    <button class="close" id="aboutClose" aria-label="Close">×</button>
+    <div id="aboutBody"></div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
