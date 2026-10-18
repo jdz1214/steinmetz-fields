@@ -1,24 +1,21 @@
-name: Deploy to GitHub Pages
+name: Build site for GitHub Pages
+# Assembles the static site (decoding the base64-stored binary assets in _b64/) and publishes it
+# to the gh-pages branch, which GitHub Pages serves. The same build is also kept on site-build.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble site (decode binary assets stored as base64 text)
+      - name: Assemble site
         run: |
           mkdir _site
           tar --exclude=./.git --exclude=./.github --exclude=./_b64 --exclude=./_site -cf - . | tar -xf - -C _site
@@ -29,13 +26,19 @@ jobs:
             base64 -d "$f" > "$out"
           done
           cd ..
+          touch _site/.nojekyll
           test -s _site/og.png && test -s _site/index.html
           find _site -type f | sort
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish build branches
+        run: |
+          cd _site
+          git init -q -b site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site build from ${GITHUB_SHA}"
+          remote="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -f "$remote" site:site-build
+          if git ls-remote --exit-code --heads "$remote" gh-pages >/dev/null; then
+            git push -f "$remote" site:gh-pages
+          fi

@@ -14,7 +14,7 @@ An interactive 3D look at the two stores of a circuit's energy as Charles P. Ste
   marked as not mainstream physics and never changes a computed number.
 
 Static site with no tracking. The binary assets (`og.png` and the `.woff2` fonts) are stored as base64 text under `_b64/`
-and decoded by the Pages workflow (`.github/workflows/pages.yml`) when the site is deployed.
+and decoded by the workflow in `.github/workflows/pages.yml`, which publishes the assembled site to the `gh-pages` branch.
 
 ## Sources
 
